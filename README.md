@@ -1,4 +1,6 @@
 # marketing-metrics
 
-# Purpose: Combine Gas and standard Grocery offer metrics into one single report for Marketing to analyze effectiveness of User Acquisition and Engagement Campaigns
-# Eventually - replace the Replace the Engagement Report.
+# Purpose: 
+Combine Gas and standard Grocery offer KPIs into one single report for Marketing to report on and analyze effectiveness of User Acquisition and Engagement Campaigns
+# Future:
+Replace the Engagement Report. Which does not consider Gas content and has unused fields and legacy calculations.
