@@ -1,0 +1,299 @@
+-----Converting Week (batch) time format
+Create temporary table t_a1 as
+Select
+    batch_id,
+    timestamp 'epoch' + batch.start_date * interval '1 second' AS batch_start,
+    timestamp 'epoch' + batch.end_date * interval '1 second' AS batch_finish
+from batch
+Where batch_id > 730
+;
+
+----Joining batch to gas claims table
+Create temporary table t_a2 as
+Select
+    t_a1.batch_id,
+    gc.*
+FROM getupside_claims gc
+     LEFT JOIN t_a1 on t_a1.batch_start < gc.created_at AND t_a1.batch_finish > gc.created_at AND t_a1.batch_id %2 = 1
+Order by gc.claim_id
+;
+
+-------------Metrics on New Users
+Create temporary table t_a3 as
+select
+    u.signup_batch_id,
+    count(distinct t_a2.user_id) as Week0_Gas_Savers
+from t_a2
+    INNER JOIN users u on u.user_id = t_a2.user_id
+where
+  u.signup_batch_id = t_a2.batch_id
+  and t_a2.status = 'accepted'
+  and u.signup_batch_id > 730
+group by u.signup_batch_id
+;
+
+--------------------------------------Paid Saver Calculation (Gas + Grocery)
+
+Create temporary table t_a8 as
+    Select
+        u.signup_batch_id,
+        r.user_id
+    from users u, receipts r, receipt_requests rr, offers o
+    where
+    r.batch_id = u.signup_batch_id
+    and u.user_id = r.user_id
+    and r.receipt_id = rr.receipt_id
+    AND r.deleted = 0
+    AND rr.status = 'APPROVED'
+    AND r.current_status = 'APPROVED'
+    AND u.partner_id = 1
+    AND rr.offer_id = o.offer_id
+    AND o.offer_type = 'PAID'
+    and u.signup_batch_id > 730
+;
+
+Create temporary table t_a9 as
+    select
+        u.signup_batch_id,
+        t_a2.user_id
+    from t_a2
+         INNER JOIN users u on u.user_id = t_a2.user_id
+    where
+        u.signup_batch_id = t_a2.batch_id
+    and t_a2.status = 'accepted'
+    and u.signup_batch_id > 730
+;
+
+Create temporary table t_a7 as
+Select
+    tP.signup_batch_id,
+    count(distinct tP.user_id) as Week0_Paid_Savers
+From
+    (SELECT t_a8.signup_batch_id,
+            t_a8.user_id
+     FROM t_a8
+     UNION
+     SELECT t_a9.signup_batch_id,
+            t_a9.user_id
+     FROM t_a9) as tP
+group by tP.signup_batch_id
+;
+
+------------------------------------------------------------------------------
+Create temporary table t_a4 as
+select
+    u.signup_batch_id,
+    count(distinct r.user_id) as Week0_Paid_Grocery_Savers
+from users u, receipts r, receipt_requests rr, offers o
+where
+  r.batch_id = u.signup_batch_id
+  and u.user_id = r.user_id
+  and r.receipt_id = rr.receipt_id
+  and rr.offer_id = o.offer_id
+  AND r.deleted = 0
+  AND rr.status = 'APPROVED'
+  AND r.current_status = 'APPROVED'
+  AND o.offer_type = 'PAID'
+  AND u.partner_id = 1
+  and u.signup_batch_id > 730
+group by u.signup_batch_id
+;
+
+------------------------------------------------PAID SAVER CALC START (W1)
+
+Create temporary table t_a16 as
+Select
+    u.signup_batch_id,
+    r.user_id
+from users u, receipts r, receipt_requests rr, offers o
+where
+  (r.batch_id <= u.signup_batch_id + 2)
+  and u.user_id = r.user_id
+  and r.receipt_id = rr.receipt_id
+  AND r.deleted = 0
+  AND rr.status = 'APPROVED'
+  AND r.current_status = 'APPROVED'
+  AND u.partner_id = 1
+  AND rr.offer_id = o.offer_id
+  AND o.offer_type = 'PAID'
+  and u.signup_batch_id > 730
+;
+
+Create temporary table t_a17 as
+select
+    u.signup_batch_id,
+    t_a2.user_id
+from t_a2
+         INNER JOIN users u on u.user_id = t_a2.user_id
+where
+  (t_a2.batch_id <= u.signup_batch_id + 2)
+  and t_a2.status = 'accepted'
+  and u.signup_batch_id > 730
+;
+
+Create temporary table t_a18 as
+Select
+    tP.signup_batch_id,
+    count(distinct tP.user_id) as Week1_Paid_Savers
+From
+    (SELECT t_a16.signup_batch_id,
+            t_a16.user_id
+     FROM t_a16
+     UNION
+     SELECT t_a17.signup_batch_id,
+            t_a17.user_id
+     FROM t_a17) as tP
+group by tP.signup_batch_id
+;
+
+------------------------------------------------------------------------------PAID SAVER CALC END
+
+
+Create temporary table t_a5 as
+select
+    u.signup_batch_id,
+    count(distinct t_a2.user_id) as Week1_Gas_Savers
+from t_a2
+         INNER JOIN users u on u.user_id = t_a2.user_id
+where
+  (t_a2.batch_id <= u.signup_batch_id + 2)
+  and t_a2.status = 'accepted'
+  and t_a2.batch_id > 730
+group by u.signup_batch_id
+;
+
+
+
+Create temporary table t_a6 as
+select
+    u.signup_batch_id,
+    count(distinct r.user_id) as Week1_Paid_Grocery_Savers
+from t_a2, users u, receipts r, receipt_requests rr, offers o
+where
+    (r.batch_id <= u.signup_batch_id + 2)
+  and u.user_id = r.user_id
+  and r.receipt_id = rr.receipt_id
+  AND r.deleted = 0
+  AND rr.offer_id = o.offer_id
+  and o.offer_type = 'PAID'
+  AND rr.status = 'APPROVED'
+  AND r.current_status = 'APPROVED'
+  AND u.partner_id = 1
+  and u.signup_batch_id > 730
+group by u.signup_batch_id
+;
+---------------------------------------------------------------------------NEW USERS END
+
+----------------------------------------------------------------------------------------START ---------Excludes New Users
+-----------PAID SAVERS | GAS SAVERS | GROCERY SAVERS BY BATCH EXCLUDING NEW
+
+Create temporary table t_a10 as
+select
+    t_a2.batch_id,
+    count(distinct t_a2.user_id) as GAS_SAVERS
+from t_a2
+         INNER JOIN users u on u.user_id = t_a2.user_id
+where
+  u.signup_batch_id <> t_a2.batch_id
+  and t_a2.status = 'accepted'
+group by t_a2.batch_id
+;
+
+---------------------------------------------------------------------------START PAID SAVER CALC
+Create temporary table t_a12 as
+Select
+    r.batch_id,
+    r.user_id
+from users u, receipts r, receipt_requests rr, offers o
+where
+  r.batch_id <> u.signup_batch_id
+  and u.user_id = r.user_id
+  and r.receipt_id = rr.receipt_id
+  AND r.deleted = 0
+  AND rr.status = 'APPROVED'
+  AND r.current_status = 'APPROVED'
+  AND u.partner_id = 1
+  AND rr.offer_id = o.offer_id
+  AND o.offer_type = 'PAID'
+  and r.batch_id > 730
+;
+
+Create temporary table t_a13 as
+select
+    t_a2.batch_id,
+    t_a2.user_id
+from t_a2
+         INNER JOIN users u on u.user_id = t_a2.user_id
+where
+   u.signup_batch_id <> t_a2.batch_id
+  and t_a2.status = 'accepted'
+;
+
+Create temporary table t_a14 as
+Select
+    tP.batch_id,
+    count(distinct tP.user_id) as PAID_SAVERS
+From
+    (SELECT t_a12.batch_id,
+            t_a12.user_id
+     FROM t_a12
+     UNION
+     SELECT t_a13.batch_id,
+            t_a13.user_id
+     FROM t_a13) as tP
+group by tP.batch_id
+;
+
+--------------------------------------------------------------------------- END PAID SAVER CALC
+
+Create temporary table t_a15 as
+select
+    r.batch_id,
+    count(distinct r.user_id) as PAID_GROCERY_SAVERS
+from users u, receipts r, receipt_requests rr, offers o
+where
+  r.batch_id <> u.signup_batch_id
+  and u.user_id = r.user_id
+  and r.receipt_id = rr.receipt_id
+  AND r.deleted = 0
+  AND rr.status = 'APPROVED'
+  AND r.current_status = 'APPROVED'
+  AND rr.offer_id = o.offer_id
+  and o.offer_type = 'PAID'
+  AND u.partner_id = 1
+  and r.batch_id > 730
+group by r.batch_id
+;
+----------------------------------------------------------------------------------------END ---------Excludes New Users
+
+
+--------------------------------------------------------------------------- REPORT OUTPUT
+
+Select
+------NEW USERS = on W1 batches
+       distinct t_a3.signup_batch_id as Batch_id,
+       t_a7.Week0_Paid_Savers,
+       t_a3.Week0_Gas_Savers,
+       t_a4.Week0_Paid_Grocery_Savers,
+       t_a18.Week1_Paid_Savers,
+       t_a5.Week1_Gas_Savers,
+       t_a6.Week1_Paid_Grocery_Savers,
+------EXCLUDE NEW USERS <= on W1 batches
+       t_a10.GAS_SAVERS,
+       t_a14.PAID_SAVERS,
+       t_a15.PAID_GROCERY_SAVERS
+
+FROM t_a3
+         LEFT JOIN t_a4 on t_a3.signup_batch_id = t_a4.signup_batch_id
+         LEFT JOIN t_a5 on t_a3.signup_batch_id = t_a5.signup_batch_id
+         LEFT JOIN t_a6 on t_a3.signup_batch_id = t_a6.signup_batch_id
+         LEFT JOIN t_a7 on t_a3.signup_batch_id = t_a7.signup_batch_id
+         LEFT JOIN t_a10 on t_a10.batch_id = t_a3.signup_batch_id
+         LEFT JOIN t_a13 on t_a13.batch_id = t_a3.signup_batch_id
+         LEFT JOIN t_a18 on t_a18.signup_batch_id = t_a3.signup_batch_id
+         LEFT JOIN t_a14 on t_a14.batch_id = t_a3.signup_batch_id
+         LEFT JOIN t_a15 on t_a15.batch_id = t_a3.signup_batch_id
+WHERE
+    t_a3.signup_batch_id between 733 and 741
+Order by Batch_id desc
+;
